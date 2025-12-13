@@ -1,0 +1,23 @@
+digraph dag_price_demand {
+	Price
+	Passengers
+	Distance
+	Competition
+	MarketSize
+	Season
+	FuelCost
+	AirportFees
+	Distance -> Price
+	Distance -> Passengers
+	Competition -> Price
+	Competition -> Passengers
+	MarketSize -> Price
+	MarketSize -> Passengers
+	Season -> Price
+	Season -> Passengers
+	FuelCost -> Price
+	FuelCost -> Passengers
+	AirportFees -> Price
+	AirportFees -> Passengers
+	Price -> Passengers
+}

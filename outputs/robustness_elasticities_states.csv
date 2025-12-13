@@ -1,0 +1,5 @@
+spec,beta,se,method,notes
+A_simple,-0.3112934561700268,0.10021350224569686,OLS,
+B_controls,-0.3112934561700268,0.10021350224569686,OLS,controls=[]
+C_FE_route,-0.6343471385712878,0.030357142625917134,PanelOLS,"entity_effects=True, time_effects=False"
+D_FE_route_year,-0.9752122864737333,0.04008492898442821,PanelOLS,"entity_effects=True, time_effects=True"
