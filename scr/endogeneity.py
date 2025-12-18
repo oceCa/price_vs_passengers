@@ -17,11 +17,11 @@ import matplotlib.pyplot as plt
 MERGED_CSV = "data/merged_air_travel_data.csv"   # base unique
 MIN_PAX = 0                                      # seuil optionnel pour filtrer les flux faibles (0 = pas de filtre)
 
-# ✅ Everything goes under outputs/
+#  Everything goes under outputs/
 OUT_DIR = "outputs"
 FIG_DIR = os.path.join(OUT_DIR, "figures_endogeneity")
 
-# ✅ Show figures when running (Notebook / VSCode / Terminal)
+#  Show figures when running (Notebook / VSCode / Terminal)
 SHOW_FIGS = True
 
 # Pour les IV : noms de colonnes candidates (si elles existent dans ton CSV)

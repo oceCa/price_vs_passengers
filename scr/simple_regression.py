@@ -6,15 +6,24 @@
 #  - faire une régression simple niveau states -> cities
 #  - faire une régression simple niveau routes (city1 -> city2)
 # en utilisant uniquement merged_air_travel_data.csv
+#
+# OUTPUT POLICY:
+#  - Terminal: no prints
+#  - Display: ONLY the city->city plot (plt.show only there)
+#  - Files: DAG + states plot + cities plot are still saved
 # -----------------------------------------------------------
 
 import os
 import shutil
+import contextlib
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from statsmodels.tools.tools import add_constant
+
 
 # ✅ Fix path + centralize outputs
 MERGED_CSV = "data/merged_air_travel_data.csv"
@@ -26,6 +35,17 @@ FIG_DIR = os.path.join(OUT_DIR, "figures_simple_reg")
 def ensure_dirs():
     os.makedirs(OUT_DIR, exist_ok=True)
     os.makedirs(FIG_DIR, exist_ok=True)
+
+
+@contextlib.contextmanager
+def silence_stdout():
+    """
+    Mute prints coming from our code (and some libraries) for a block.
+    Keeps errors/exceptions visible.
+    """
+    with open(os.devnull, "w") as devnull:
+        with contextlib.redirect_stdout(devnull), contextlib.redirect_stderr(devnull):
+            yield
 
 
 # =========================
@@ -56,14 +76,12 @@ def make_dag_price_demand():
             g.edge(z, "Passengers")
         g.edge("Price", "Passengers")
 
-        # ✅ save to outputs folder (graphviz adds .png)
         outbase = os.path.join(FIG_DIR, "dag_price_demand")
-        outpath = g.render(filename=outbase, cleanup=True)
-        print(f"[DAG] saved → {outpath}")
+        g.render(filename=outbase, cleanup=True)
         return
 
-    except Exception as err:
-        print(f"[DAG] graphviz path failed ({err}). Falling back to networkx…")
+    except Exception:
+        # fallback networkx
         try:
             import networkx as nx
 
@@ -82,37 +100,27 @@ def make_dag_price_demand():
             plt.axis("off")
             plt.tight_layout()
 
-            # ✅ save to outputs folder
             outpng = os.path.join(FIG_DIR, "dag_price_demand_fallback.png")
             plt.savefig(outpng, dpi=200)
             plt.close()
-            print(f"[DAG] saved → {outpng}")
 
-        except Exception as err2:
-            print(f"[DAG] fallback also failed: {err2}")
+        except Exception:
+            # if even fallback fails, just skip silently
+            return
 
 
 # =========================
 # Helper: load & clean merged_air_travel_data.csv
 # =========================
 def load_and_clean_merged(path=MERGED_CSV) -> pd.DataFrame:
-    """
-    Charge merged_air_travel_data.csv, nettoie les colonnes clés
-    et restreint la fenêtre temporelle 1996–2025.
-    """
     if not os.path.exists(path):
         raise FileNotFoundError(f"{path} introuvable dans le dossier courant.")
 
-    print(f"[DATA] Loading {path} ...")
     df = pd.read_csv(path)
 
     if "passengers" not in df.columns:
         raise KeyError("Colonne 'passengers' absente du CSV.")
-    df["passengers"] = (
-        df["passengers"]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-    )
+    df["passengers"] = df["passengers"].astype(str).str.replace(",", "", regex=False)
     df["passengers"] = pd.to_numeric(df["passengers"], errors="coerce")
 
     if "Real price" not in df.columns:
@@ -127,8 +135,6 @@ def load_and_clean_merged(path=MERGED_CSV) -> pd.DataFrame:
     df = df.dropna(subset=["passengers", "Real price", "city1", "city2", "Year"])
     df = df[(df["passengers"] > 0) & (df["Real price"] > 0)]
     df = df[(df["Year"] >= 1996) & (df["Year"] <= 2025)]
-
-    print(f"[DATA] Cleaned merged_air_travel_data: {len(df)} rows.")
     return df
 
 
@@ -136,35 +142,23 @@ def load_and_clean_merged(path=MERGED_CSV) -> pd.DataFrame:
 # Helper: build state-level panel
 # =========================
 def build_state_city_year_from_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Sort un DataFrame avec colonnes:
-        Year, origin_state, city2, total_passengers, avg_price
-    """
-    if "city1" not in df.columns:
-        raise KeyError("Column 'city1' not found in DataFrame.")
-    if "city2" not in df.columns:
-        raise KeyError("Column 'city2' not found in DataFrame.")
-
     df = df.copy()
-    df["origin_state"] = df["city1"].str.extract(r',\s*([A-Z]{2})')[0]
+    df["origin_state"] = df["city1"].str.extract(r",\s*([A-Z]{2})")[0]
     df = df.dropna(subset=["Year", "origin_state", "city2", "passengers", "Real price"])
 
     state_city_year = (
-        df
-        .groupby(["Year", "origin_state", "city2"])
-        .apply(lambda g: pd.Series({
-            "total_passengers": g["passengers"].sum(),
-            "avg_price": (g["Real price"] * g["passengers"]).sum() / g["passengers"].sum()
-        }))
-        .reset_index()
+        df.groupby(["Year", "origin_state", "city2"])
+          .apply(lambda g: pd.Series({
+              "total_passengers": g["passengers"].sum(),
+              "avg_price": (g["Real price"] * g["passengers"]).sum() / g["passengers"].sum()
+          }))
+          .reset_index()
     )
-
-    print(f"[DATA] Aggregated panel (state → city → year) ready: {len(state_city_year)} observations.")
     return state_city_year
 
 
 # =========================
-# Plot 1: State-level simple regression
+# Plot 1: State-level simple regression (SAVED ONLY, NO SHOW)
 # =========================
 def plot_states_simple(df_state_city_year: pd.DataFrame):
     ensure_dirs()
@@ -174,24 +168,20 @@ def plot_states_simple(df_state_city_year: pd.DataFrame):
     df["avg_price"] = pd.to_numeric(df["avg_price"], errors="coerce")
     df = df.dropna(subset=["total_passengers", "avg_price"])
 
+    # Keep your original rule
     df = df[df["total_passengers"] >= 5000]
     if df.empty:
-        raise ValueError("Aucune observation state→city ≥ 5000 passagers après nettoyage.")
+        return  # silently skip
 
     df["route_id"] = df["origin_state"].astype(str) + " -> " + df["city2"].astype(str)
-    cluster_var = df["route_id"]
-    print("\n[STATES] Running OLS (levels) with clustered SE (groups = route_id)")
 
     X = add_constant(df["avg_price"])
     y = df["total_passengers"]
 
     model = sm.OLS(y, X, missing="drop").fit(
         cov_type="cluster",
-        cov_kwds={"groups": cluster_var, "use_correction": True}
+        cov_kwds={"groups": df["route_id"], "use_correction": True}
     )
-
-    print("\n=== [STATES] OLS levels (total_passengers ~ avg_price) ===")
-    print(model.summary())
 
     a = model.params.get("avg_price", np.nan)
     b = model.params.get("const", np.nan)
@@ -216,12 +206,11 @@ def plot_states_simple(df_state_city_year: pd.DataFrame):
 
     outpng = os.path.join(FIG_DIR, "routes_states_price_x.png")
     plt.savefig(outpng, dpi=300)
-    plt.show()
-    print(f"[PLOT] saved → {outpng}")
+    plt.close()  # ✅ IMPORTANT: no plt.show()
 
 
 # =========================
-# Plot 2: City-level simple regression
+# Plot 2: City-level simple regression (SAVED + SHOW)
 # =========================
 def plot_cities_simple(df_merged: pd.DataFrame):
     ensure_dirs()
@@ -238,26 +227,22 @@ def plot_cities_simple(df_merged: pd.DataFrame):
 
     grouped["total_passengers"] = pd.to_numeric(grouped["total_passengers"], errors="coerce")
     grouped["avg_price"] = pd.to_numeric(grouped["avg_price"], errors="coerce")
-    grouped = grouped[grouped["total_passengers"] >= 5000]
     grouped = grouped.replace([np.inf, -np.inf], np.nan).dropna(subset=["avg_price", "total_passengers"])
 
+    # Keep your original rule (>=5000 per year obs)
+    grouped = grouped[grouped["total_passengers"] >= 5000]
     if grouped.empty:
         raise ValueError("Aucune route ≥ 5000 passagers pour 1996–2025 après nettoyage.")
 
     grouped["route_id"] = grouped["city1"].astype(str) + " -> " + grouped["city2"].astype(str)
-    cluster_var = grouped["route_id"]
-    print("\n[CITIES] Running OLS (levels) with clustered SE (groups = route_id)")
 
     X = add_constant(grouped["avg_price"])
     y = grouped["total_passengers"]
 
     model = sm.OLS(y, X, missing="drop").fit(
         cov_type="cluster",
-        cov_kwds={"groups": cluster_var, "use_correction": True}
+        cov_kwds={"groups": grouped["route_id"], "use_correction": True}
     )
-
-    print("\n=== [CITIES] OLS levels (total_passengers ~ avg_price) ===")
-    print(model.summary())
 
     a = model.params.get("avg_price", np.nan)
     b = model.params.get("const", np.nan)
@@ -282,8 +267,9 @@ def plot_cities_simple(df_merged: pd.DataFrame):
 
     outpng = os.path.join(FIG_DIR, "routes_cities_price_x.png")
     plt.savefig(outpng, dpi=300)
-    plt.show()
-    print(f"[PLOT] saved → {outpng}")
+
+    plt.show()   # ✅ ONLY thing that pops up
+    plt.close()
 
 
 # =========================
@@ -292,13 +278,13 @@ def plot_cities_simple(df_merged: pd.DataFrame):
 if __name__ == "__main__":
     ensure_dirs()
 
-    print("[DAG] generating…")
-    make_dag_price_demand()
-    print("[DAG] done.")
+    # Run everything but keep terminal silent
+    with silence_stdout():
+        make_dag_price_demand()
+        df_merged = load_and_clean_merged(MERGED_CSV)
+        df_state_city_year = build_state_city_year_from_df(df_merged)
+        plot_states_simple(df_state_city_year)
 
+    # Only city plot is shown, no extra terminal output
     df_merged = load_and_clean_merged(MERGED_CSV)
-
-    df_state_city_year = build_state_city_year_from_df(df_merged)
-    plot_states_simple(df_state_city_year)
-
     plot_cities_simple(df_merged)

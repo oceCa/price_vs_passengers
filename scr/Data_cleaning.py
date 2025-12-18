@@ -5,7 +5,7 @@ def main(input_dir="."):
     input_dir = Path(input_dir)
 
     # Charger le CSV principal
-    cities_path = input_dir / "Cities_All.csv"
+    cities_path = input_dir / "data/row_data/Cities_All.csv"
     df = pd.read_csv(cities_path)
 
 
@@ -29,7 +29,7 @@ def main(input_dir="."):
     df = df[cols_to_keep]
 
     # 4) Charger l’inflation
-    inflation_path = input_dir / "inflation_data.csv"
+    inflation_path = input_dir / "data/row_data/inflation_data.csv"
     inflation_df = pd.read_csv(inflation_path)
 
     # petit helper pour retrouver les bons noms
@@ -72,7 +72,7 @@ def main(input_dir="."):
     df["Real price"] = df["fare"] / df["amount"]
 
     # 9) Sauvegarde
-    output_path = input_dir / "merged_air_travel_data.csv"
+    output_path = input_dir / "data/merged_air_travel_data.csv"
     df.to_csv(output_path, index=False)
 
 if __name__ == "__main__":
